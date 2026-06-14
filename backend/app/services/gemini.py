@@ -28,6 +28,7 @@ async def receive_from_gemini(session, websocket: WebSocket, session_state: dict
                         
                     model_turn = server_content.model_turn
                     if model_turn:
+                        session_state["is_model_speaking"] = True
                         for part in model_turn.parts:
                             if part.inline_data and part.inline_data.data:
                                 if not session_state.get("first_chunk_received", True):
@@ -54,6 +55,10 @@ async def receive_from_gemini(session, websocket: WebSocket, session_state: dict
                                     "type": "text",
                                     "data": part.text
                                 })
+                    
+                    if server_content.turn_complete:
+                        session_state["is_model_speaking"] = False
+                        
     except asyncio.CancelledError:
         logger.info("Receive task cancelled cleanly.")
     except Exception as e:

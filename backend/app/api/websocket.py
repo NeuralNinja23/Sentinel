@@ -5,12 +5,40 @@ import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from google.genai import types
 
-from app.config import MODEL, SENTINEL_PROMPT
+from app.config import MODEL, SENTINEL_PROMPT, VISION_INTERVAL, VISION_MIN_DIFF
 from app.services.gemini import client, receive_from_gemini
 from app.services.logger import get_logger
+from app.services.screen import capture_primary_display
 
 router = APIRouter()
 logger = get_logger("websocket")
+
+async def vision_loop(session, session_state):
+    """Background loop that continuously captures the screen and sends frames to Gemini."""
+    logger.info("Continuous Vision loop started.")
+    while True:
+        try:
+            await asyncio.sleep(VISION_INTERVAL)
+            # Run the heavy screen capture & opencv diffing in a background thread
+            img_bytes = await asyncio.to_thread(
+                capture_primary_display, 
+                min_diff_threshold=VISION_MIN_DIFF
+            )
+            if img_bytes:
+                if session_state.get("is_model_speaking", False):
+                    logger.debug("[VISION] Model is speaking. Skipping frame upload to prevent barge-in.")
+                    continue
+                    
+                logger.info(f"[VISION] Screen changed. Sending frame ({len(img_bytes) // 1024} KB)")
+                realtime_input = types.LiveClientRealtimeInput(
+                    media_chunks=[types.Blob(data=img_bytes, mime_type="image/jpeg")]
+                )
+                await session.send(input=realtime_input)
+        except asyncio.CancelledError:
+            logger.info("Continuous Vision loop stopped.")
+            break
+        except Exception as e:
+            logger.error(f"Error in vision loop: {e}")
 
 @router.websocket("/ws/voice")
 async def voice_websocket(websocket: WebSocket):
@@ -28,6 +56,7 @@ async def voice_websocket(websocket: WebSocket):
 
     while retry_count < max_retries:
         receive_task = None
+        vision_task = None
         try:
             logger.info(f"Connecting to Gemini Live API using model: {MODEL} (Attempt {retry_count + 1}/{max_retries})")
             
@@ -49,6 +78,9 @@ async def voice_websocket(websocket: WebSocket):
                 
                 # Start background task to receive from Gemini
                 receive_task = asyncio.create_task(receive_from_gemini(session, websocket, session_state))
+                
+                # Start Continuous Vision loop
+                vision_task = asyncio.create_task(vision_loop(session, session_state))
                 
                 try:
                     while True:
@@ -92,15 +124,21 @@ async def voice_websocket(websocket: WebSocket):
                     logger.info("Frontend client disconnected")
                     if receive_task:
                         receive_task.cancel()
+                    if 'vision_task' in locals() and vision_task:
+                        vision_task.cancel()
                     return # Exit completely if frontend drops
                 finally:
                     if receive_task:
                         receive_task.cancel()
+                    if 'vision_task' in locals() and vision_task:
+                        vision_task.cancel()
                     
         except Exception as e:
             logger.error(f"Error in Gemini Live connection: {e}")
             if receive_task:
                 receive_task.cancel()
+            if vision_task:
+                vision_task.cancel()
                 
             retry_count += 1
             if retry_count < max_retries:

@@ -8,6 +8,10 @@ PROJECT_ID = os.getenv("VERTEX_PROJECT_ID", "gencode-497110")
 REGION = os.getenv("VERTEX_REGION", "us-central1")
 MODEL = "gemini-live-2.5-flash-native-audio"
 
+# Vision Settings
+VISION_INTERVAL = 2.0  # seconds between screen captures
+VISION_MIN_DIFF = 50.0 # minimum MSE difference to trigger an upload
+
 from pathlib import Path
 
 # Load instructions from external file

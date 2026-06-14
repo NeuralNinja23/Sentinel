@@ -5,3 +5,6 @@ python-multipart==0.0.6
 google-genai
 websockets
 python-dotenv
+mss
+opencv-python
+pillow
