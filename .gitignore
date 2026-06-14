@@ -1,0 +1,27 @@
+# Node
+node_modules/
+.next/
+out/
+build/
+dist/
+npm-debug.log
+yarn-error.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+.venv/
+env/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Logs
+*.log
+backend.log
+
+# OS
+.DS_Store
+Thumbs.db

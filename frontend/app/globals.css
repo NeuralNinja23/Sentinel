@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #00E5FF;
+  --color-secondary: #0066FF;
+  --color-accent: #8B5CF6;
+  --color-success: #00FF9D;
+  --color-warning: #FFB800;
+  --color-danger: #FF3B30;
+
+  --font-space: var(--font-space-grotesk);
+  --font-orbitron: var(--font-orbitron);
+  --font-exo: var(--font-exo-2);
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  
+  body {
+    background-color: #000;
+    color: #fff;
+    margin: 0;
+    padding: 0;
+    overflow: hidden; /* Fullscreen, no scrolling */
+    width: 100vw;
+    height: 100vh;
+    font-family: var(--font-space);
+  }
+}
+
+/* Custom Utilities for Neon Effects */
+@layer utilities {
+  .text-glow-primary {
+    text-shadow: 0 0 10px rgba(0, 229, 255, 0.7), 0 0 20px rgba(0, 229, 255, 0.5);
+  }
+  .border-glow-primary {
+    box-shadow: 0 0 15px rgba(0, 229, 255, 0.3), inset 0 0 10px rgba(0, 229, 255, 0.2);
+  }
+}
