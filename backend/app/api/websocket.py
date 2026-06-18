@@ -58,6 +58,11 @@ async def voice_websocket(websocket: WebSocket):
         receive_task = None
         vision_task = None
         try:
+            from starlette.websockets import WebSocketState
+            if websocket.client_state == WebSocketState.DISCONNECTED:
+                logger.info("WebSocket is already disconnected. Aborting reconnect.")
+                return
+
             logger.info(f"Connecting to Gemini Live API using model: {MODEL} (Attempt {retry_count + 1}/{max_retries})")
             
             # System tools declarations (codebase tools that still exist)
@@ -159,6 +164,24 @@ async def voice_websocket(websocket: WebSocket):
                         },
                         "required": ["query"]
                     }
+                },
+                {
+                    "name": "check_status",
+                    "description": "Checks the status of all active background tasks and retrieves pending notifications/results. Run this when the user asks for status or updates."
+                },
+                {
+                    "name": "cancel_task",
+                    "description": "Cancels a specific background task.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "task_id": {
+                                "type": "STRING",
+                                "description": "The ID of the task to cancel."
+                            }
+                        },
+                        "required": ["task_id"]
+                    }
                 }
             ]
 
@@ -240,6 +263,10 @@ async def voice_websocket(websocket: WebSocket):
                         if receive_msg_task in done:
                             try:
                                 message = receive_msg_task.result()
+                                
+                                if message.get("type") == "websocket.disconnect":
+                                    raise WebSocketDisconnect()
+                                    
                                 if "text" in message and message["text"]:
                                     payload = json.loads(message["text"])
                                     
@@ -249,7 +276,7 @@ async def voice_websocket(websocket: WebSocket):
                                         
                                     elif payload.get("type") == "turn_complete":
                                         logger.info("Frontend signalled turn_complete — forwarding to Gemini Live.")
-                                        client_content = types.ClientContent(turn_complete=True)
+                                        client_content = types.LiveClientContent(turn_complete=True)
                                         await session.send(input=client_content)
                                         
                                     # FIX #43: Handle command inputs from the frontend
@@ -270,14 +297,7 @@ async def voice_websocket(websocket: WebSocket):
                                     )
                                     await session.send(input=realtime_input)
 
-                                # FIX #2: Frontend mute button sends turn_complete when
-                                # the user clicks Stop. Relay it to Gemini Live so the
-                                # model receives an explicit end-of-turn cutoff and stops
-                                # generating, instead of assuming the user just paused.
-                                elif payload.get("type") == "turn_complete":
-                                    logger.info("Frontend signalled turn_complete — forwarding to Gemini Live.")
-                                    client_content = types.ClientContent(turn_complete=True)
-                                    await session.send(input=client_content)
+
 
                             except WebSocketDisconnect:
                                 raise # Handled by outer block
@@ -298,6 +318,13 @@ async def voice_websocket(websocket: WebSocket):
                         vision_task.cancel()
                     
         except Exception as e:
+            error_str = str(e)
+            if "websocket.close" in error_str or "closed" in error_str.lower():
+                logger.info("WebSocket is closed. Exiting connection loop cleanly.")
+                if receive_task: receive_task.cancel()
+                if vision_task: vision_task.cancel()
+                return
+
             logger.error(f"Error in Gemini Live connection: {e}")
             if receive_task:
                 receive_task.cancel()

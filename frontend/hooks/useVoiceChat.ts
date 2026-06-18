@@ -150,17 +150,23 @@ export function useVoiceChat() {
       // to avoid blocking the main UI thread with audio processing.
       const workletCode = `
       class PCMProcessor extends AudioWorkletProcessor {
+        constructor() {
+          super();
+          this.buffer = new Int16Array(2048);
+          this.offset = 0;
+        }
         process(inputs) {
           const input = inputs[0];
           if (input && input[0]) {
-            // Downsample and convert to 16-bit PCM
             const float32Array = input[0];
-            const int16Array = new Int16Array(float32Array.length);
             for (let i = 0; i < float32Array.length; i++) {
               const s = Math.max(-1, Math.min(1, float32Array[i]));
-              int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+              this.buffer[this.offset++] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+              if (this.offset >= this.buffer.length) {
+                this.port.postMessage(this.buffer.buffer.slice(0));
+                this.offset = 0;
+              }
             }
-            this.port.postMessage(int16Array.buffer);
           }
           return true;
         }

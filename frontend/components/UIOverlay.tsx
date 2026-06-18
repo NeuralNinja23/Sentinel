@@ -85,7 +85,7 @@ export default function UIOverlay() {
       </motion.div>
 
       {/* MAIN CONTENT AREA */}
-      <div className="flex-1 w-full flex justify-between px-6 pb-6 pt-2 pointer-events-none relative">
+      <div className="flex-1 min-h-0 w-full flex justify-between px-6 pb-6 pt-2 pointer-events-none relative">
 
         {/* LEFT PANEL */}
         <motion.div
