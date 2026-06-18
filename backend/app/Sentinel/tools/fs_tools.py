@@ -10,19 +10,16 @@ logger = get_logger("fs_tools")
 ROOT_DIR = Path(__file__).resolve().parents[4]
 
 def _secure_path(path_str: str) -> Path | None:
-    """Ensures the path is within the Sentinel root directory."""
+    """Resolves the path allowing full system access."""
     try:
+        if len(path_str) == 2 and path_str[1] == ':':
+            path_str += '\\'
+            
         p = Path(path_str)
         if not p.is_absolute():
             p = ROOT_DIR / p
         
-        p = p.resolve()
-        
-        # Check if ROOT_DIR is a parent of the resolved path, or if they are the same
-        if ROOT_DIR not in p.parents and p != ROOT_DIR:
-            logger.warning(f"SECURITY ALERT: Attempted to access path outside sandbox: {path_str}")
-            return None
-        return p
+        return p.resolve()
     except Exception as e:
         logger.error(f"Path resolution error for {path_str}: {e}")
         return None
@@ -52,8 +49,11 @@ def list_directory(path: str = ".") -> str:
                 "type": "directory" if item.is_dir() else "file",
                 "size": item.stat().st_size if item.is_file() else None,
             })
+            if len(items) >= 200:
+                items.append({"name": "... [TRUNCATED AT 200 ITEMS] Use search_code instead ...", "type": "warning", "size": None})
+                break
         return json.dumps({
-            "path": str(target_path.relative_to(ROOT_DIR).as_posix()), 
+            "path": str(target_path.as_posix()), 
             "items": items
         })
     except Exception as e:
@@ -80,7 +80,7 @@ def read_file(path: str) -> str:
                 lines.append(line)
                 
         return json.dumps({
-            "path": str(target_path.relative_to(ROOT_DIR).as_posix()),
+            "path": str(target_path.as_posix()),
             "content": "".join(lines)
         })
     except UnicodeDecodeError:
@@ -88,17 +88,18 @@ def read_file(path: str) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-def get_file_tree() -> str:
-    """Returns the full project file tree (excluding node_modules/venv). Returns JSON string."""
-    logger.info("Generating file tree...")
+def get_file_tree(path: str = None) -> str:
+    """Returns the file tree for the given path (defaults to ROOT_DIR). Returns JSON string."""
+    search_root = _secure_path(path) if path else ROOT_DIR
+    logger.info(f"Generating file tree for {search_root}...")
     tree = []
     
     try:
-        for root, dirs, files in os.walk(ROOT_DIR):
+        for root, dirs, files in os.walk(search_root):
             # Exclude hidden dirs and heavy dependencies
             dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('node_modules', 'venv', '__pycache__')]
             
-            rel_root = Path(root).relative_to(ROOT_DIR).as_posix()
+            rel_root = Path(root).relative_to(search_root).as_posix()
             if rel_root == '.':
                 path_prefix = ""
             else:
@@ -107,7 +108,10 @@ def get_file_tree() -> str:
             for f in files:
                 if not f.startswith('.') or f in ('.env', '.gitignore'):
                     tree.append(f"{path_prefix}{f}")
-                    
+                    if len(tree) >= 400:
+                        tree.append("... [TRUNCATED AT 400 FILES] Use search_code to find specific files ...")
+                        return json.dumps({"tree": tree, "warning": "Directory too large to fully map."})
+                        
         return json.dumps({"tree": tree})
     except Exception as e:
         return json.dumps({"error": str(e)})

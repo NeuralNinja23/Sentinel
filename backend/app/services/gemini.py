@@ -100,10 +100,16 @@ async def receive_from_gemini(session, websocket: WebSocket, session_state: dict
                                 else:
                                     raw_pcm = base64.b64decode(part.inline_data.data)
                                     
+                                # FIX #43: Drop audio if governance mute is active
+                                if time.time() < session_state.get("ignore_audio_until", 0):
+                                    continue
+                                    
                                 # FIX #14: Send raw binary PCM audio over WebSocket
                                 await websocket.send_bytes(raw_pcm)
                             
                             if part.text:
+                                if time.time() < session_state.get("ignore_audio_until", 0):
+                                    continue
                                 logger.info(f"Text Response: {part.text}")
                                 await websocket.send_json({
                                     "type": "text",

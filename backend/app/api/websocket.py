@@ -2,6 +2,7 @@ import json
 import base64
 import asyncio
 import time
+import audioop
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from google.genai import types
 
@@ -13,7 +14,7 @@ from app.services.screen import capture_primary_display
 router = APIRouter()
 logger = get_logger("websocket")
 
-async def vision_loop(session, session_state):
+async def vision_loop(session, session_state, send_lock):
     """Background loop that continuously captures the screen and sends frames to Gemini."""
     logger.info("Continuous Vision loop started.")
     while True:
@@ -33,7 +34,8 @@ async def vision_loop(session, session_state):
                 realtime_input = types.LiveClientRealtimeInput(
                     media_chunks=[types.Blob(data=img_bytes, mime_type="image/jpeg")]
                 )
-                await session.send(input=realtime_input)
+                async with send_lock:
+                    await session.send(input=realtime_input)
         except asyncio.CancelledError:
             logger.info("Continuous Vision loop stopped.")
             break
@@ -72,7 +74,7 @@ async def voice_websocket(websocket: WebSocket):
             system_tools_declarations = [
                 {
                     "name": "list_directory",
-                    "description": "Lists files and subdirectories in a specific directory path under the project root.",
+                    "description": "Lists files and subdirectories in a specific directory path. Can be an absolute path on the host system or relative to the workspace.",
                     "parameters": {
                         "type": "OBJECT",
                         "properties": {
@@ -85,7 +87,7 @@ async def voice_websocket(websocket: WebSocket):
                 },
                 {
                     "name": "read_file",
-                    "description": "Reads and returns content of a specific file. Returns up to 800 lines.",
+                    "description": "Reads and returns content of a specific file. Returns up to 800 lines. Supports absolute paths across the entire laptop.",
                     "parameters": {
                         "type": "OBJECT",
                         "properties": {
@@ -98,8 +100,35 @@ async def voice_websocket(websocket: WebSocket):
                     }
                 },
                 {
+                    "name": "write_file",
+                    "description": "Writes or overwrites content to a specific file. Creates necessary directories. Supports absolute paths.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "path": {
+                                "type": "STRING",
+                                "description": "File path relative to workspace or absolute."
+                            },
+                            "content": {
+                                "type": "STRING",
+                                "description": "The entire content to write to the file."
+                            }
+                        },
+                        "required": ["path", "content"]
+                    }
+                },
+                {
                     "name": "get_file_tree",
-                    "description": "Returns the full project file tree (excluding node_modules/venv). Useful to see the whole structure."
+                    "description": "Returns the file tree for the given path (defaults to Sentinel workspace). Useful to see the whole structure. Can explore the whole laptop.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "path": {
+                                "type": "STRING",
+                                "description": "Optional absolute path to generate tree for."
+                            }
+                        }
+                    }
                 },
                 {
                     "name": "search_code",
@@ -114,11 +143,16 @@ async def voice_websocket(websocket: WebSocket):
                             "search_type": {
                                 "type": "STRING",
                                 "description": "Type of search: 'text', 'filename', 'class', 'function'."
+                            },
+                            "path": {
+                                "type": "STRING",
+                                "description": "Optional absolute path to search in. Defaults to Sentinel workspace."
                             }
                         },
                         "required": ["query"]
                     }
                 },
+
                 {
                     "name": "explain_architecture",
                     "description": "Generates a high-level architecture map of the codebase."
@@ -151,20 +185,7 @@ async def voice_websocket(websocket: WebSocket):
                         "required": ["file_path"]
                     }
                 },
-                {
-                    "name": "analyze_codebase_for_query",
-                    "description": "Automated context assembly pipeline. Run this when you need detailed context on multiple files or complex issues.",
-                    "parameters": {
-                        "type": "OBJECT",
-                        "properties": {
-                            "query": {
-                                "type": "STRING",
-                                "description": "Reasoning query to build codebase context for."
-                            }
-                        },
-                        "required": ["query"]
-                    }
-                },
+
                 {
                     "name": "check_status",
                     "description": "Checks the status of all active background tasks and retrieves pending notifications/results. Run this when the user asks for status or updates."
@@ -242,10 +263,11 @@ async def voice_websocket(websocket: WebSocket):
                 retry_count = 0 # Reset retries on successful connection
                 
                 # Start background task to receive from Gemini
+                send_lock = asyncio.Lock()
                 receive_task = asyncio.create_task(receive_from_gemini(session, websocket, session_state))
                 
                 # Start Continuous Vision loop
-                vision_task = asyncio.create_task(vision_loop(session, session_state))
+                vision_task = asyncio.create_task(vision_loop(session, session_state, send_lock))
                 
                 try:
                     while True:
@@ -272,30 +294,72 @@ async def voice_websocket(websocket: WebSocket):
                                     
                                     if payload.get("type") == "wake_word":
                                         logger.info("Wake word received. Triggering Sentinel online greeting.")
-                                        await session.send(input="Say exactly: Sentinel online.")
+                                        async with send_lock:
+                                            await session.send(input="Say exactly: Sentinel online.")
                                         
                                     elif payload.get("type") == "turn_complete":
                                         logger.info("Frontend signalled turn_complete — forwarding to Gemini Live.")
                                         client_content = types.LiveClientContent(turn_complete=True)
-                                        await session.send(input=client_content)
+                                        async with send_lock:
+                                            await session.send(input=client_content)
+                                            
+                                    elif payload.get("type") == "config":
+                                        rate = payload.get("sampleRate", 16000)
+                                        session_state["client_sample_rate"] = rate
+                                        logger.info(f"Frontend configured with native sample rate: {rate} Hz")
                                         
                                     # FIX #43: Handle command inputs from the frontend
                                     elif payload.get("type") == "command":
                                         cmd_text = payload.get("text", "")
                                         if cmd_text:
                                             logger.info(f"Command received: {cmd_text}")
-                                            await session.send(input=cmd_text)
+                                            async with send_lock:
+                                                await session.send(input=cmd_text)
+                                            
+                                    elif payload.get("type") == "governance":
+                                        cmd = payload.get("command")
+                                        logger.info(f"Governance command received: {cmd}")
+                                        
+                                        # Mute Gemini audio for 3 seconds to ensure silence
+                                        session_state["ignore_audio_until"] = time.time() + 3.0
+                                        
+                                        if cmd == "pause":
+                                            from app.tasks.task_manager import pause_all_tasks
+                                            pause_all_tasks()
+                                        elif cmd == "resume":
+                                            from app.tasks.task_manager import resume_all_tasks
+                                            resume_all_tasks()
+                                        elif cmd == "stop":
+                                            from app.tasks.task_manager import stop_all_tasks
+                                            stop_all_tasks()
+                                            
+                                        # Force Gemini to flush its current generation so it doesn't try to answer
+                                        client_content = types.LiveClientContent(turn_complete=True)
+                                        async with send_lock:
+                                            await session.send(input=client_content)
                                         
                                 elif "bytes" in message and message["bytes"]:
                                     raw_audio = message["bytes"]
                                     
-                                    session_state["last_input_time"] = time.time()
-                                    session_state["first_chunk_received"] = False
+                                    if len(raw_audio) > 0 and len(raw_audio) % 2 == 0:
+                                        if not session_state.get("audio_logged", False):
+                                            logger.info(f"[AUDIO DEBUG] First audio chunk: {len(raw_audio)} bytes ({len(raw_audio)//2} samples)")
+                                            session_state["audio_logged"] = True
+                                        session_state["last_input_time"] = time.time()
+                                        session_state["first_chunk_received"] = False
+    
+                                        client_rate = session_state.get("client_sample_rate", 16000)
+                                        if client_rate != 16000:
+                                            state = session_state.get("audioop_state", None)
+                                            # audioop.ratecv arguments: (fragment, width, nchannels, inrate, outrate, state)
+                                            raw_audio, new_state = audioop.ratecv(raw_audio, 2, 1, client_rate, 16000, state)
+                                            session_state["audioop_state"] = new_state
 
-                                    realtime_input = types.LiveClientRealtimeInput(
-                                        media_chunks=[types.Blob(data=raw_audio, mime_type="audio/pcm;rate=16000")]
-                                    )
-                                    await session.send(input=realtime_input)
+                                        realtime_input = types.LiveClientRealtimeInput(
+                                            media_chunks=[types.Blob(data=raw_audio, mime_type="audio/pcm;rate=16000")]
+                                        )
+                                        async with send_lock:
+                                            await session.send(input=realtime_input)
 
 
 

@@ -7,13 +7,15 @@ from app.Sentinel.tools.fs_tools import ROOT_DIR
 
 logger = get_logger("search_tools")
 
-def search_code(query: str, search_type: str = "text") -> str:
+def search_code(query: str, search_type: str = "text", path: str = ".") -> str:
     """
-    Searches the codebase.
+    Searches the codebase or the provided path.
     search_type can be: 'text', 'filename', 'class', 'function', 'symbol'
     Returns JSON string with matching files and snippets.
     """
-    logger.info(f"Searching codebase for '{query}' (type: {search_type})")
+    from app.Sentinel.tools.fs_tools import _secure_path
+    search_root = _secure_path(path) if path else ROOT_DIR
+    logger.info(f"Searching {search_root} for '{query}' (type: {search_type})")
     
     results = []
     
@@ -31,7 +33,7 @@ def search_code(query: str, search_type: str = "text") -> str:
     try:
         import time
         start_time = time.time()
-        for root, dirs, files in os.walk(ROOT_DIR):
+        for root, dirs, files in os.walk(search_root):
             if time.time() - start_time > 5.0:
                 logger.warning("Search timed out after 5 seconds.")
                 break
@@ -45,7 +47,7 @@ def search_code(query: str, search_type: str = "text") -> str:
                     continue
                     
                 filepath = Path(root) / f
-                rel_path = filepath.relative_to(ROOT_DIR).as_posix()
+                rel_path = filepath.as_posix()
                 
                 if search_type == "filename":
                     if query.lower() in f.lower():

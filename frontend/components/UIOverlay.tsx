@@ -3,14 +3,14 @@
 import { motion } from "framer-motion";
 import { useEffect, useState, useRef } from "react";
 import { useVoiceChat } from "@/hooks/useVoiceChat";
+import { useSystemStats, formatNetSpeed, formatUptime } from "@/hooks/useSystemStats";
 import HudCanvas from "./HudCanvas";
 
 export default function UIOverlay() {
   const [timeStr, setTimeStr] = useState("");
   const [dateStr, setDateStr] = useState("");
-  const { isConnected, isRecording, toggleRecording, logs, sendCommand } = useVoiceChat();
-  const [cpu, setCpu] = useState(18);
-  const [mem, setMem] = useState(45);
+  const { isConnected, isRecording, toggleRecording, logs, sendCommand, speakingState } = useVoiceChat();
+  const { stats, isLive } = useSystemStats(2000);
   const [cmdText, setCmdText] = useState("");
 
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -29,7 +29,6 @@ export default function UIOverlay() {
     };
     updateTime();
     
-    // FIX #42: Removed fake system telemetry generator that was lying to the user
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
   }, []);
@@ -54,7 +53,7 @@ export default function UIOverlay() {
         className="absolute top-1/2 left-1/2 w-[600px] h-[600px] pointer-events-auto opacity-80 mix-blend-screen z-0"
         style={{ transform: "translate(-50%, -50%)" }}
       >
-        <HudCanvas state={isRecording ? "LISTENING" : "IDLE"} muted={!isRecording} />
+        <HudCanvas state={speakingState === "INACTIVE" ? "IDLE" : speakingState} muted={!isRecording} />
       </div>
 
       {/* TOP STATUS BAR */}
@@ -104,30 +103,30 @@ export default function UIOverlay() {
             {/* Bars Box */}
             <div className="flex flex-col gap-4 p-4 border border-primary/20 rounded-sm">
               <div className="flex flex-col gap-1 text-[10px] font-orbitron tracking-widest">
-                <div className="flex justify-between"><span className="text-primary/70">CPU</span><span className="text-primary">{cpu.toFixed(0)}%</span></div>
-                <div className="w-full h-1 bg-white/5"><div className="h-full bg-primary transition-all duration-1000" style={{ width: `${cpu}%` }} /></div>
+                <div className="flex justify-between"><span className="text-primary/70">CPU</span><span className="text-primary">{stats.cpu.toFixed(0)}%</span></div>
+                <div className="w-full h-1 bg-white/5"><div className="h-full bg-primary transition-all duration-1000" style={{ width: `${Math.min(stats.cpu, 100)}%` }} /></div>
               </div>
               <div className="flex flex-col gap-1 text-[10px] font-orbitron tracking-widest">
-                <div className="flex justify-between"><span className="text-warning/70">MEM</span><span className="text-warning">{mem.toFixed(0)}%</span></div>
-                <div className="w-full h-1 bg-white/5"><div className="h-full bg-warning transition-all duration-1000" style={{ width: `${mem}%` }} /></div>
+                <div className="flex justify-between"><span className="text-warning/70">MEM</span><span className="text-warning">{stats.mem.toFixed(0)}%</span></div>
+                <div className="w-full h-1 bg-white/5"><div className="h-full bg-warning transition-all duration-1000" style={{ width: `${Math.min(stats.mem, 100)}%` }} /></div>
               </div>
               <div className="flex flex-col gap-1 text-[10px] font-orbitron tracking-widest">
-                <div className="flex justify-between"><span className="text-success/70">NET</span><span className="text-success">0.5M</span></div>
-                <div className="w-full h-1 bg-white/5"><div className="h-full bg-success w-[10%]" /></div>
+                <div className="flex justify-between"><span className="text-success/70">NET</span><span className="text-success">{formatNetSpeed(stats.net_recv_bps)}</span></div>
+                <div className="w-full h-1 bg-white/5"><div className="h-full bg-success transition-all duration-1000" style={{ width: `${Math.min(stats.net_recv_bps / 10_000_000 * 100, 100)}%` }} /></div>
               </div>
               <div className="flex flex-col gap-1 text-[10px] font-orbitron tracking-widest">
-                <div className="flex justify-between"><span className="text-danger/70">GPU</span><span className="text-danger">1%</span></div>
-                <div className="w-full h-1 bg-white/5"><div className="h-full bg-danger w-[1%]" /></div>
+                <div className="flex justify-between"><span className="text-danger/70">GPU</span><span className="text-danger">{stats.gpu.toFixed(0)}%</span></div>
+                <div className="w-full h-1 bg-white/5"><div className="h-full bg-danger transition-all duration-1000" style={{ width: `${Math.min(stats.gpu, 100)}%` }} /></div>
               </div>
               <div className="flex flex-col gap-1 text-[10px] font-orbitron tracking-widest">
-                <div className="flex justify-between"><span className="text-pink-400/70">TMP</span><span className="text-pink-400">45°C</span></div>
-                <div className="w-full h-1 bg-white/5"><div className="h-full bg-pink-400 w-[45%]" /></div>
+                <div className="flex justify-between"><span className="text-pink-400/70">TMP</span><span className="text-pink-400">{stats.gpu_temp > 0 ? `${stats.gpu_temp}°C` : (stats.cpu_temp > 0 ? `${stats.cpu_temp}°C` : '—')}</span></div>
+                <div className="w-full h-1 bg-white/5"><div className="h-full bg-pink-400 transition-all duration-1000" style={{ width: `${Math.min((stats.gpu_temp || stats.cpu_temp) / 100 * 100, 100)}%` }} /></div>
               </div>
 
               <div className="mt-4 flex flex-col gap-1 border-t border-primary/20 pt-4 font-orbitron text-[10px] tracking-widest">
-                <div className="flex justify-between text-success/80"><span>UP</span><span>00:00:00</span></div>
-                <div className="flex justify-between text-primary/80"><span>PROC</span><span>214</span></div>
-                <div className="flex justify-between text-warning/80"><span>OS</span><span>WEB</span></div>
+                <div className="flex justify-between text-success/80"><span>UP</span><span>{formatUptime(stats.uptime_seconds)}</span></div>
+                <div className="flex justify-between text-primary/80"><span>PROC</span><span>{stats.processes}</span></div>
+                <div className="flex justify-between text-warning/80"><span>OS</span><span>{stats.os}</span></div>
               </div>
             </div>
           </div>

@@ -38,10 +38,35 @@ def cancel_task(task_id: str) -> bool:
     """Marks a task for cancellation if it is running or pending."""
     if task_id in tasks:
         task = tasks[task_id]
-        if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING):
+        if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.PAUSED):
             task.cancel_requested = True
             task.status = TaskStatus.CANCELLED
             task.updated_at = datetime.now()
             emit_event(task_id, "TASK_CANCELLED")
             return True
     return False
+
+def pause_all_tasks():
+    """Transitions any RUNNING tasks to PAUSED."""
+    for task_id, task in tasks.items():
+        if task.status == TaskStatus.RUNNING:
+            task.status = TaskStatus.PAUSED
+            task.updated_at = datetime.now()
+            emit_event(task_id, "TASK_PAUSED")
+
+def resume_all_tasks():
+    """Transitions any PAUSED tasks back to RUNNING."""
+    for task_id, task in tasks.items():
+        if task.status == TaskStatus.PAUSED:
+            task.status = TaskStatus.RUNNING
+            task.updated_at = datetime.now()
+            emit_event(task_id, "TASK_RESUMED")
+
+def stop_all_tasks():
+    """Cancels all active or pending tasks immediately."""
+    for task_id, task in tasks.items():
+        if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.PAUSED):
+            task.cancel_requested = True
+            task.status = TaskStatus.CANCELLED
+            task.updated_at = datetime.now()
+            emit_event(task_id, "TASK_CANCELLED")
