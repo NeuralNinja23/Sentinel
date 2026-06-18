@@ -34,8 +34,12 @@ const CosmicNetwork = ({ count = 150, radius = 20, connectionDistance = 5 }) => 
         const dx = xi - xj;
         const dy = yi - yj;
         const dz = zi - zj;
-        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (dist < connectionDistance) {
+        
+        // FIX #38: Optimize distance calculation to avoid slow Math.sqrt
+        const distSq = dx * dx + dy * dy + dz * dz;
+        const connectSq = connectionDistance * connectionDistance;
+        
+        if (distSq < connectSq) {
           indices.push(i, j);
         }
       }
@@ -88,24 +92,15 @@ const CosmicNetwork = ({ count = 150, radius = 20, connectionDistance = 5 }) => 
   return (
     <group>
       {/* Points */}
-      <points
-        geometry={pointsGeometry}
-        material={new THREE.PointsMaterial({
-          color: '#00e5ff',
-          size: 0.1,
-          transparent: true,
-          opacity: 0.8,
-        })}
-      />
+      <points geometry={pointsGeometry}>
+        {/* FIX #39: Use R3F declarative materials to auto-dispose and prevent WebGL Context Leaks */}
+        <pointsMaterial color="#00e5ff" size={0.1} transparent opacity={0.8} />
+      </points>
+      
       {/* Lines */}
-      <lineSegments
-        geometry={linesGeometry}
-        material={new THREE.LineBasicMaterial({
-          color: '#0066ff',
-          transparent: true,
-          opacity: 0.3,
-        })}
-      />
+      <lineSegments geometry={linesGeometry}>
+        <lineBasicMaterial color="#0066ff" transparent opacity={0.3} />
+      </lineSegments>
     </group>
   );
 };

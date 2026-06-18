@@ -3,6 +3,19 @@ import { useState, useRef, useCallback, useEffect } from "react";
 export function useVoiceChat() {
   const [isConnected, setIsConnected] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [logs, setLogs] = useState<string[]>(["SENTINEL Online"]);
+  
+  const addLog = useCallback((msg: string) => {
+    setLogs(prev => [...prev, msg].slice(-50)); // Keep last 50 logs
+  }, []);
+
+  const sendCommand = useCallback((text: string) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "command", text }));
+      addLog(`USER COMMAND: ${text}`);
+    }
+  }, [addLog]);
+
   const wsRef = useRef<WebSocket | null>(null);
   const recordingContextRef = useRef<AudioContext | null>(null);
   const playbackContextRef = useRef<AudioContext | null>(null);
@@ -19,26 +32,14 @@ export function useVoiceChat() {
   // Playback state
   const nextPlayTimeRef = useRef<number>(0);
 
-  // Base64 to ArrayBuffer
-  const base64ToArrayBuffer = (base64: string) => {
-    const binaryString = window.atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-  };
-
-  const playAudioChunk = useCallback((base64Audio: string) => {
+  const playAudioChunk = useCallback((arrayBuffer: ArrayBuffer) => {
     // Initialize playback context if it doesn't exist. Must be 24000Hz for Gemini Live Output
     if (!playbackContextRef.current) {
       playbackContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     }
     const audioContext = playbackContextRef.current;
     
-    // Gemini Live returns 24kHz 16-bit Mono PCM (Little Endian).
-    const arrayBuffer = base64ToArrayBuffer(base64Audio);
+    // FIX #14: Gemini Live returns 24kHz 16-bit Mono PCM (Little Endian).
     const dataView = new DataView(arrayBuffer);
     const float32Array = new Float32Array(arrayBuffer.byteLength / 2);
     
@@ -66,6 +67,8 @@ export function useVoiceChat() {
   useEffect(() => {
     // We only initialize AudioContext on startRecording to comply with browser autoplay policies
     const ws = new WebSocket("ws://localhost:8000/ws/voice");
+    // FIX #14: Receive binary frames as ArrayBuffer directly
+    ws.binaryType = "arraybuffer";
     
     ws.onopen = () => {
       console.log("Connected to Sentinel Backend");
@@ -73,24 +76,34 @@ export function useVoiceChat() {
     };
 
     ws.onmessage = (event) => {
+      // FIX #14: Audio frames arrive as raw binary
+      if (event.data instanceof ArrayBuffer) {
+        playAudioChunk(event.data);
+        return;
+      }
+      
       const msg = JSON.parse(event.data);
       if (msg.type === "system") {
         console.log("System:", msg.message);
-      } else if (msg.type === "audio") {
-        playAudioChunk(msg.data);
       } else if (msg.type === "text") {
         console.log("Sentinel:", msg.data);
+        addLog(`SENTINEL: ${msg.data}`);
+      } else if (msg.type === "user") {
+        addLog(`USER: ${msg.data}`);
       } else if (msg.type === "interrupt") {
         console.log("Sentinel playback interrupted by user barge-in.");
-        if (playbackContextRef.current) {
-          playbackContextRef.current.close();
-          playbackContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-          nextPlayTimeRef.current = 0;
-        }
+        addLog("SYS: Playback interrupted.");
+        // FIX #12: Reuse existing AudioContext instead of close() + new AudioContext().
+        // Browsers hard-limit AudioContexts to 6 per page — creating new ones on every
+        // interrupt caused a crash after 6 barge-ins.
+        // Instead: just reset the playback clock so queued audio is dropped immediately.
+        nextPlayTimeRef.current = 0;
       }
     };
 
-    ws.onclose = () => setIsConnected(false);
+    ws.onclose = () => {
+      setIsConnected(false);
+    };
     wsRef.current = ws;
 
     return () => {
@@ -98,26 +111,7 @@ export function useVoiceChat() {
     };
   }, [playAudioChunk]);
 
-  // Float32 to Int16 conversion for PCM
-  const floatTo16BitPCM = (input: Float32Array) => {
-    const output = new Int16Array(input.length);
-    for (let i = 0; i < input.length; i++) {
-      const s = Math.max(-1, Math.min(1, input[i]));
-      output[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-    }
-    return output;
-  };
-
-  // Convert Int16Array to Base64 to send via WebSocket
-  const int16ToBase64 = (int16Array: Int16Array) => {
-    const buffer = new Uint8Array(int16Array.buffer);
-    let binary = '';
-    for (let i = 0; i < buffer.byteLength; i++) {
-      binary += String.fromCharCode(buffer[i]);
-    }
-    return window.btoa(binary);
-  };
-
+  // Removed int16ToBase64 and floatTo16BitPCM as they are moved to AudioWorklet
 
 
   const startRecording = useCallback(async () => {
@@ -150,27 +144,51 @@ export function useVoiceChat() {
       }
       
       const audioContext = recordingContextRef.current;
-
       const source = audioContext.createMediaStreamSource(stream);
-      // Deprecated but universally supported way to intercept raw PCM data fast
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
 
-      processor.onaudioprocess = (e) => {
-        const inputData = e.inputBuffer.getChannelData(0);
-        const pcm16 = floatTo16BitPCM(inputData);
-        const base64Audio = int16ToBase64(pcm16);
-        
+      // FIX #13: Use AudioWorklet instead of deprecated createScriptProcessor
+      // to avoid blocking the main UI thread with audio processing.
+      const workletCode = `
+      class PCMProcessor extends AudioWorkletProcessor {
+        process(inputs) {
+          const input = inputs[0];
+          if (input && input[0]) {
+            // Downsample and convert to 16-bit PCM
+            const float32Array = input[0];
+            const int16Array = new Int16Array(float32Array.length);
+            for (let i = 0; i < float32Array.length; i++) {
+              const s = Math.max(-1, Math.min(1, float32Array[i]));
+              int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            this.port.postMessage(int16Array.buffer);
+          }
+          return true;
+        }
+      }
+      registerProcessor('pcm-processor', PCMProcessor);
+      `;
+      
+      const blob = new Blob([workletCode], { type: 'application/javascript' });
+      const workletUrl = URL.createObjectURL(blob);
+      
+      try {
+        await audioContext.audioWorklet.addModule(workletUrl);
+      } catch(e) {
+        // Module might already be added
+      }
+      
+      const workletNode = new (window as any).AudioWorkletNode(audioContext, 'pcm-processor');
+      processorRef.current = workletNode as any;
+
+      workletNode.port.onmessage = (e: MessageEvent) => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({
-            type: "audio",
-            data: base64Audio
-          }));
+          // FIX #14: Send raw binary directly over the WebSocket
+          wsRef.current.send(e.data);
         }
       };
 
-      source.connect(processor);
-      processor.connect(audioContext.destination);
+      source.connect(workletNode);
+      workletNode.connect(audioContext.destination);
       
       setIsRecording(true);
     } catch (err) {
@@ -181,11 +199,23 @@ export function useVoiceChat() {
   const stopRecording = useCallback(() => {
     if (processorRef.current) {
       processorRef.current.disconnect();
+      processorRef.current = null;
     }
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
     }
     setIsRecording(false);
+
+    // FIX #2: Send a definitive turn_complete signal to the backend so it can
+    // relay it to the Gemini Live API. Without this, Gemini never receives an
+    // explicit end-of-turn cutoff and keeps generating / speaking.
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "turn_complete" }));
+    }
+
+    // FIX #2 (audio): Reset playback clock so any buffered audio stops immediately.
+    nextPlayTimeRef.current = 0;
     
     // Restart wake word listener when Vertex AI session ends
     if (recognitionRef.current) {
@@ -209,12 +239,21 @@ export function useVoiceChat() {
     recognition.lang = "en-US";
 
     recognition.onresult = (event: any) => {
-      if (isRecordingRef.current || isActivatingRef.current) return;
-
       let transcript = "";
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         transcript += event.results[i][0].transcript;
       }
+
+      const isFinal = event.results[event.results.length - 1].isFinal;
+
+      if (isRecordingRef.current) {
+        if (isFinal && transcript.trim()) {
+          addLog(`USER: ${transcript.trim()}`);
+        }
+        return;
+      }
+
+      if (isActivatingRef.current) return;
 
       const lower = transcript.toLowerCase();
       // Broad matching to catch misspellings and alternate phrases
@@ -243,12 +282,9 @@ export function useVoiceChat() {
     };
 
     recognition.onend = () => {
-      // Auto-restart listener if we are NOT currently talking to Gemini
-      if (!isRecordingRef.current) {
-        try {
-          recognition.start();
-        } catch (e) {}
-      }
+      try {
+        recognition.start();
+      } catch (e) {}
     };
 
     try {
@@ -270,5 +306,5 @@ export function useVoiceChat() {
     }
   }, [isRecording, startRecording, stopRecording]);
 
-  return { isConnected, isRecording, toggleRecording };
+  return { isConnected, isRecording, toggleRecording, logs, sendCommand };
 }

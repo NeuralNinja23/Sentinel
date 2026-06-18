@@ -1,4 +1,5 @@
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
 
 def get_logger(name: str) -> logging.Logger:
@@ -13,7 +14,8 @@ def get_logger(name: str) -> logging.Logger:
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
         
-        file_handler = logging.FileHandler("backend.log")
+        # FIX #48: Use RotatingFileHandler to prevent log bomb (5MB max, 2 backups)
+        file_handler = RotatingFileHandler("backend.log", maxBytes=5*1024*1024, backupCount=2)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
     return logger

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo } from "react";
+import { useRef, useMemo, useState, useEffect } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Text } from "@react-three/drei";
 import * as THREE from "three";
@@ -20,7 +20,13 @@ function HudRing({
 }: any) {
   const ringRef = useRef<THREE.Group>(null);
   
+  // FIX #21: Track created Three.js objects to dispose them and prevent WebGL memory leaks
+  const cleanupRef = useRef<any[]>([]);
+  
   const geometryObj = useMemo(() => {
+    cleanupRef.current.forEach(obj => obj?.dispose?.());
+    cleanupRef.current = [];
+
     if (type === "tick") {
       // Generate individual hash marks around the perimeter
       const points = [];
@@ -36,6 +42,7 @@ function HudRing({
       }
       const geo = new THREE.BufferGeometry().setFromPoints(points);
       const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
+      cleanupRef.current.push(geo, mat);
       return <lineSegments geometry={geo} material={mat} />;
     } else if (type === "dashed") {
       // Standard dashed line
@@ -46,7 +53,7 @@ function HudRing({
       }
       const geo = new THREE.BufferGeometry().setFromPoints(points);
       const mat = new THREE.LineDashedMaterial({ color, dashSize, gapSize, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
-      
+      cleanupRef.current.push(geo, mat);
       const line = new THREE.Line(geo, mat);
       line.computeLineDistances();
       return <primitive object={line} />;
@@ -67,10 +74,17 @@ function HudRing({
       }
       const geo = new THREE.BufferGeometry().setFromPoints(points);
       const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
+      cleanupRef.current.push(geo, mat);
       const lineObj = new THREE.Line(geo, mat);
       return <primitive object={lineObj} />;
     }
   }, [radius, thickness, color, opacity, type, dashSize, gapSize, segments]);
+
+  useEffect(() => {
+    return () => {
+      cleanupRef.current.forEach(obj => obj?.dispose?.());
+    };
+  }, []);
 
   useFrame((state) => {
     if (ringRef.current) {
@@ -88,6 +102,13 @@ function HudRing({
 
 export default function SentinelCore() {
   const COLOR = "#00E5FF"; // Bright Cyan / Teal
+  
+  // Fade in the text slightly after mount to hide the Drei font-loading layout jump
+  const [textOpacity, setTextOpacity] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => setTextOpacity(0.9), 100);
+    return () => clearTimeout(t);
+  }, []);
 
   return (
     <group rotation={[0, 0, 0]}>
@@ -100,7 +121,7 @@ export default function SentinelCore() {
         anchorY="middle"
         material-toneMapped={false} // Prevent tone mapping to allow pure bloom glow
         material-transparent={true}
-        material-opacity={0.9}
+        material-opacity={textOpacity}
         letterSpacing={0.2}
       >
         S.E.N.T.I.N.E.L
