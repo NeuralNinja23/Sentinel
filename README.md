@@ -2,7 +2,7 @@
 
 Sentinel is a next-generation, high-performance intelligent agent operating system designed to plan, execute, and remember complex user interactions. It features a stunning, futuristic sci-fi HUD dashboard combined with a low-latency, native **Audio-to-Audio** pipeline powered by the Gemini Live API.
 
-![Sentinel Dashboard](./dashboard_loaded_1781879359732.png)
+![Sentinel Dashboard](./Docs/Images/dashboard_loaded_1781879359732.png)
 
 ---
 
@@ -11,7 +11,7 @@ Sentinel is a next-generation, high-performance intelligent agent operating syst
 * **🎙️ Low-Latency Native Audio-to-Audio**: Direct microphone capture via browser `AudioWorkletNode` streaming raw PCM binary frames over WebSockets. The backend downsamples incoming frames in a thread-safe, bounded queue to 16kHz and pipes them directly to the Gemini Live session, achieving near-zero latency conversation without intermediate text transcriptions.
 * **🪐 Immersive Sci-Fi HUD Dashboard**: A premium, responsive interface featuring dynamic rotating orbitals, concentric arcs, real-time particle fields, and glowing gauges showing system CPU, memory, network speed, and disk storage metrics.
 * **👁️ Continuous OS-level Vision**: Background loop that captures the primary display, runs frame-diff analysis, and streams visual inputs directly to the Gemini Live session to let the AI "see" your screen.
-* **🛠️ Native Tool Execution**: Empowered with OS-level tools allowing Sentinel to inspect directory trees, read/write files, simulate mouse/keyboard inputs, query weather, search the web, manage reminders, and track background tasks.
+* **🛠️ Native Tool Execution**: Empowered with OS-level tools allowing Sentinel to inspect directory trees, read/write files, manage reminders, and track background tasks.
 * **🧠 Persistent categorised Memory**: Long-term categorical memory subsystem using Gemini to analyze, extract, and format key user facts, preferences, relationships, and wishes into structured long-term storage.
 
 ---
