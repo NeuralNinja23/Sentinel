@@ -3,6 +3,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 import asyncio
+import logging
+
+# Filter out /api/system-stats from uvicorn access logs
+class EndpointFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Check in the formatted message
+        msg = record.getMessage()
+        if "/api/system-stats" in msg:
+            return False
+        # Also check raw arguments just in case
+        if record.args:
+            for arg in record.args:
+                if isinstance(arg, str) and "/api/system-stats" in arg:
+                    return False
+        return True
+
+logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
 
 from app.api.websocket import router as websocket_router
 from app.api.system_stats import router as system_stats_router

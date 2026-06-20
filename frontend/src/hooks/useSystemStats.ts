@@ -3,6 +3,8 @@ import { useState, useEffect, useRef } from "react";
 export interface SystemStats {
   cpu: number;
   mem: number;
+  mem_total_gb?: number;
+  mem_used_gb?: number;
   net_send_bps: number;
   net_recv_bps: number;
   gpu: number;
@@ -11,11 +13,16 @@ export interface SystemStats {
   processes: number;
   uptime_seconds: number;
   os: string;
+  disk_total?: number;
+  disk_used?: number;
+  disk_percent?: number;
 }
 
 const DEFAULT_STATS: SystemStats = {
   cpu: 0,
   mem: 0,
+  mem_total_gb: 0,
+  mem_used_gb: 0,
   net_send_bps: 0,
   net_recv_bps: 0,
   gpu: 0,
@@ -24,6 +31,9 @@ const DEFAULT_STATS: SystemStats = {
   processes: 0,
   uptime_seconds: 0,
   os: "—",
+  disk_total: 0,
+  disk_used: 0,
+  disk_percent: 0,
 };
 
 export function useSystemStats(intervalMs = 2000) {
