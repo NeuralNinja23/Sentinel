@@ -25,3 +25,4 @@ backend.log
 # OS
 .DS_Store
 Thumbs.db
+/commands.md
