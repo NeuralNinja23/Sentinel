@@ -9,6 +9,9 @@ class VoiceService {
   init() {
     if (typeof window === "undefined") return;
 
+    // Add startup log on client initialization
+    voiceStore.addLog("SENTINEL Online");
+
     // Connect WebSocket
     websocketService.connect(
       () => {
@@ -40,6 +43,18 @@ class VoiceService {
           voiceStore.addLog("SYS: Playback interrupted.");
           audioService.stopAllAudio();
           voiceStore.setState({ speakingState: "SPEAKING" });
+        } else if (msg.type === "state") {
+          if (msg.state === "STANDBY") {
+            voiceStore.setState({ speakingState: "STANDBY" });
+            voiceStore.addLog("SYS: Sentinel entered standby mode.");
+            audioService.stopAllAudio();
+          } else if (msg.state === "WAKING") {
+            voiceStore.setState({ speakingState: "WAKING" });
+            voiceStore.addLog("SYS: Sentinel is waking up...");
+          } else if (msg.state === "READY") {
+            voiceStore.setState({ speakingState: "INACTIVE" });
+            voiceStore.addLog("SYS: Sentinel is active and ready.");
+          }
         }
       },
       () => {
@@ -71,8 +86,7 @@ class VoiceService {
         websocketService.send(JSON.stringify({ type: "governance", command: govCmd }));
       },
       (userSpeech) => {
-        // On User Speech
-        voiceStore.addLog(`USER: ${userSpeech}`);
+        // Bypassed local logging to avoid duplicate bubbles with Whisper ASR
       },
       this.isRecordingRef,
       () => {
@@ -88,12 +102,15 @@ class VoiceService {
   sendCommand(text: string) {
     if (websocketService.isOpen()) {
       websocketService.send(JSON.stringify({ type: "command", text }));
-      voiceStore.addLog(`USER COMMAND: ${text}`);
       voiceStore.setState({ speakingState: "THINKING" });
     }
   }
 
   async startRecording() {
+    const { speakingState } = voiceStore.getState();
+    if (speakingState === "STANDBY" || speakingState === "WAKING") {
+      return;
+    }
     try {
       this.isRecordingRef.current = true;
       voiceStore.setState({ isRecording: true, speakingState: "LISTENING" });
@@ -140,7 +157,7 @@ class VoiceService {
         websocketService.send(JSON.stringify({ type: "governance", command: govCmd }));
       },
       (userSpeech) => {
-        voiceStore.addLog(`USER: ${userSpeech}`);
+        // Bypassed local logging to avoid duplicate bubbles with Whisper ASR
       },
       this.isRecordingRef,
       () => {
@@ -150,7 +167,14 @@ class VoiceService {
   }
 
   toggleRecording() {
-    const { isRecording } = voiceStore.getState();
+    const { isRecording, speakingState } = voiceStore.getState();
+    if (speakingState === "STANDBY") {
+      this.sendCommand("EXIT_STANDBY");
+      return;
+    }
+    if (speakingState === "WAKING") {
+      return;
+    }
     if (isRecording) {
       this.stopRecording();
     } else {

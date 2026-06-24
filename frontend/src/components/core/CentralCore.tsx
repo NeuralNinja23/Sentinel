@@ -13,8 +13,9 @@ import ExecutingPulse from "./ExecutingPulse";
 import { COLORS } from "../constants/colors";
 import { Cpu, HardDrive, Share2, Wrench, Mic, Eye, List, Shield } from "lucide-react";
 import { useState, useEffect } from "react";
+import { voiceService } from "../../services/voice.service";
 
-export type SentinelState = "IDLE" | "LISTENING" | "THINKING" | "SPEAKING" | "EXECUTING" | "PAUSED" | "ERROR";
+export type SentinelState = "IDLE" | "LISTENING" | "THINKING" | "SPEAKING" | "EXECUTING" | "PAUSED" | "ERROR" | "STANDBY" | "WAKING";
 
 interface CentralCoreProps {
     state?: SentinelState;
@@ -59,7 +60,25 @@ export default function CentralCore({ state = "IDLE" }: CentralCoreProps) {
                         {state === "THINKING" && <ThinkingPulse />}
                         {state === "SPEAKING" && <SpeakingPulse />}
                         {state === "EXECUTING" && <ExecutingPulse />}
+
+                        {/* Wake Overlay Button in Standby Mode */}
+                        {state === "STANDBY" && (
+                            <button
+                                onClick={() => voiceService.sendCommand("EXIT_STANDBY")}
+                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 px-6 py-3 bg-red-950/40 border border-red-500 text-red-500 hover:bg-red-950/70 hover:border-red-400 hover:text-red-400 rounded-md font-bold tracking-[0.25em] text-[10px] uppercase shadow-[0_0_20px_rgba(239,68,68,0.2)] transition-all cursor-pointer select-none"
+                            >
+                                Wake Sentinel
+                            </button>
+                        )}
+
+                        {/* Waking state loader overlay */}
+                        {state === "WAKING" && (
+                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 px-6 py-3 bg-cyan-950/40 border border-cyan-500 text-cyan-400 rounded-md font-bold tracking-[0.25em] text-[10px] uppercase shadow-[0_0_20px_rgba(0,229,255,0.2)] animate-pulse select-none">
+                                Waking...
+                            </div>
+                        )}
                     </div>
+
 
                     {/* Waveform directly under Orb */}
                     <div className="w-64 opacity-80 scale-125 mt-14">

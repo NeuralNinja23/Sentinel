@@ -27,3 +27,14 @@ backend.log
 Thumbs.db
 /commands.md
 /command.md
+
+# Database
+*.db
+Sentinel.db
+
+# Rotated logs
+*.log.*
+backend.log.*
+
+# Model weights
+backend/app/local/resources/

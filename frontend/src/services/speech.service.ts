@@ -42,6 +42,8 @@ class SpeechService {
       else if (lower.includes("pause all tasks")) govCmd = "pause";
       else if (lower.includes("resume all tasks")) govCmd = "resume";
       else if (lower.includes("stop all tasks")) govCmd = "stop";
+      else if (lower.includes("standby mode") || lower.includes("standy mode") || lower.includes("enter standby")) govCmd = "enter_standby";
+      else if (lower.includes("wake up") || lower.includes("exit standby") || lower.includes("wake sentinel")) govCmd = "exit_standby";
 
       if (govCmd) {
         onGovernanceCommand(govCmd);

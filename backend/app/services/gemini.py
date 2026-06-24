@@ -7,8 +7,6 @@ from google.genai import types
 from app.config import PROJECT_ID, REGION
 from app.services.logger import get_logger
 
-from app.runtime.conversation_runtime import handle_tool_call
-
 logger = get_logger("gemini_service")
 
 logger.info(f"Initializing Vertex AI Client for project {PROJECT_ID} in {REGION}...")
@@ -20,6 +18,7 @@ except Exception as e:
 
 async def execute_tool_call(session, function_call, websocket: WebSocket):
     """Executes a single tool call through the Conversation Runtime."""
+    from app.runtime.conversation_runtime import handle_tool_call
     tool_name = function_call.name
     tool_id = function_call.id
     
@@ -61,11 +60,15 @@ async def _run_tools_sequentially(function_calls, session, websocket: WebSocket)
 
 async def receive_from_gemini(session, websocket: WebSocket, session_state: dict):
     """Continuously receive responses from Gemini Live and forward to Frontend"""
+    from app.runtime.runtime_state import runtime_store, RuntimeState
     try:
         while True:
             async for response in session.receive():
+                if runtime_store.state in (RuntimeState.STANDBY, RuntimeState.WAKING):
+                    continue
                 
                 if getattr(response, "tool_call", None) and getattr(response.tool_call, "function_calls", None):
+
                     fcs = list(response.tool_call.function_calls)
                     for fc in fcs:
                         asyncio.create_task(execute_tool_call(session, fc, websocket))

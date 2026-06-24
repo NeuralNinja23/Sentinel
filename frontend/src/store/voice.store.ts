@@ -1,4 +1,4 @@
-export type SpeakingState = "INACTIVE" | "LISTENING" | "THINKING" | "SPEAKING";
+export type SpeakingState = "INACTIVE" | "LISTENING" | "THINKING" | "SPEAKING" | "STANDBY" | "WAKING";
 
 export interface VoiceState {
   isConnected: boolean;
@@ -19,11 +19,8 @@ class VoiceStore {
   private subscribers = new Set<Subscriber>();
 
   constructor() {
-    // Initialize default log
-    if (typeof window !== "undefined") {
-      const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      this.state.logs = [`[${timeStr}] SENTINEL Online`];
-    }
+    // Initialize logs empty to prevent server-client hydration mismatch
+    this.state.logs = [];
   }
 
   getState() {

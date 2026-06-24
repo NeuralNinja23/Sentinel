@@ -31,3 +31,10 @@ send2trash
 youtube-transcript-api
 pywinauto
 pyaudio
+watchdog
+pypdf
+python-docx
+faster-whisper
+kokoro-onnx
+soundfile
+onnxruntime

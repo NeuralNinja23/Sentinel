@@ -4,18 +4,30 @@ from google.genai import types
 
 load_dotenv()
 
-# FIX #45: Remove hardcoded Vertex project ID
 PROJECT_ID = os.getenv("VERTEX_PROJECT_ID")
-if not PROJECT_ID:
-    raise ValueError("VERTEX_PROJECT_ID environment variable is missing. Cannot start Sentinel.")
 REGION = os.getenv("VERTEX_REGION", "us-central1")
 MODEL = "gemini-live-2.5-flash-native-audio"
+
+# Local AI Configurations
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
+ASR_MODEL_SIZE = os.getenv("ASR_MODEL_SIZE", "small")
+TTS_SPEAKER_VOICE = os.getenv("TTS_SPEAKER_VOICE", "af_bella")
+
+# Database Settings
+from pathlib import Path
+DATABASE_PATH = os.getenv(
+    "SENTINEL_DATABASE_PATH",
+    str(Path(__file__).resolve().parent.parent / "Sentinel.db")
+)
 
 # Vision Settings
 VISION_INTERVAL = 2.0  # seconds between screen captures
 VISION_MIN_DIFF = 50.0 # minimum MSE difference to trigger an upload
 
-from pathlib import Path
+# Standby Settings
+STANDBY_TIMEOUT_SECONDS = 900  # 15 minutes of inactivity before auto-standby
+
 
 # FIX #44: Fix typo in instruction path ("Instrctions" -> "Sentinel/Instructions")
 instruction_path = Path(__file__).parent / "Sentinel" / "Instructions" / "sentinel.md"
@@ -43,5 +55,3 @@ SENTINEL_PROMPT = types.Content(
     role="system",
     parts=[types.Part.from_text(text=SENTINEL_SYSTEM_INSTRUCTION)]
 )
-
-# Trigger reload
